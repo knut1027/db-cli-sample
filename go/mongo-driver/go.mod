@@ -3,6 +3,7 @@ module github.com/knut1027/go-mongo-go-driver
 go 1.18
 
 require (
+	github.com/google/uuid v1.3.0
 	go.mongodb.org/mongo-driver v1.8.1
 	go.uber.org/zap v1.25.0
 )

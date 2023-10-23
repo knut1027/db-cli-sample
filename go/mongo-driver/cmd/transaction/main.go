@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"github.com/google/uuid"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -13,9 +14,10 @@ import (
 )
 
 type Book struct {
-	ID     string `bson:"_id,omitempty"`
-	Title  string `bson:"title"`
-	Author string `bson:"author"`
+	ID        string `bson:"_id,omitempty"`
+	Title     string `bson:"title"`
+	Author    string `bson:"author"`
+	UpdatedAt int64  `bson:"updated_at"`
 }
 
 func main() {
@@ -44,14 +46,14 @@ func main() {
 	defer session.EndSession(context.TODO())
 
 	book1 := Book{
-		ID:     "1",
+		//ID:     "1",
 		Title:  "The Bluest Eye",
 		Author: "Toni Morrison",
 	}
 	book2 := Book{
 		ID:     "2",
 		Title:  "Sula",
-		Author: "Toni Morrison",
+		Author: "Toni Morriso",
 	}
 	book3 := Book{
 		ID:     "3",
@@ -64,7 +66,9 @@ func main() {
 		logger: logger,
 	}
 	_, err = c.Transact(ctx, func(ctx context.Context) (interface{}, error) {
-		err := c.InsertMany(ctx, []Book{book1, book2, book3})
+		//err := c.InsertMany(ctx, []Book{book1, book2, book3})
+		//err := c.UpdateMany(ctx, []Book{book1, book2, book3})
+		err := c.BulkWrite(ctx, []Book{book1, book2, book3})
 		return nil, err
 	})
 	if err != nil {
@@ -80,14 +84,66 @@ type BookClient struct {
 func (c *BookClient) InsertMany(ctx context.Context, books []Book) error {
 	col := c.cli.Database("test").Collection("bookInfo")
 
+	now := time.Now().Unix()
 	c.logger.Info("insert many...")
-	for i := range books {
-		_, err := col.InsertOne(ctx, books[i])
+	for _, book := range books {
+		book.UpdatedAt = now
+		_, err := col.InsertOne(ctx, book)
 		if err != nil {
 			return err
 		}
 		time.Sleep(2 * time.Second)
 	}
+	return nil
+}
+
+func (c *BookClient) UpdateMany(ctx context.Context, books []Book) error {
+	col := c.cli.Database("test").Collection("bookInfo")
+
+	now := time.Now().Unix()
+	c.logger.Info("update many...")
+	for _, book := range books {
+		book.UpdatedAt = now
+		_, err := col.UpdateOne(
+			ctx,
+			bson.M{"_id": book.ID},
+			bson.M{"$set": book},
+		)
+		if err != nil {
+			return err
+		}
+		time.Sleep(2 * time.Second)
+	}
+	return nil
+}
+
+func (c *BookClient) BulkWrite(ctx context.Context, books []Book) error {
+	col := c.cli.Database("test").Collection("bookInfo")
+
+	c.logger.Info("bulk write ...")
+	models := make([]mongo.WriteModel, 0, len(books))
+
+	now := time.Now().Unix()
+	for i := range books {
+		if books[i].ID == "" {
+			u, err := uuid.NewRandom()
+			if err != nil {
+				c.logger.Warn("failed to generate uuid", zap.Error(err))
+			}
+			books[i].ID = u.String()
+		}
+		books[i].UpdatedAt = now
+		model := mongo.NewInsertOneModel().SetDocument(books[i])
+		models = append(models, model)
+	}
+
+	res, err := col.BulkWrite(ctx, models)
+	if err != nil {
+		return err
+	}
+
+	time.Sleep(5 * time.Second)
+	c.logger.Info("bulk write result", zap.Any("result", res))
 	return nil
 }
 
